@@ -73,7 +73,7 @@ export function useStoreActions(userId?: string) {
   };
 
   const addToBag = useMutation({
-    mutationFn: async (v: { productId: string; quantity: number; color?: string | null }) => {
+    mutationFn: async (v: { productId: string; quantity: number; color?: string | null | undefined }) => {
       const uid = need();
       const { data: existing } = await supabase
         .from("cart_items").select("id, quantity").eq("product_id", v.productId).maybeSingle();
