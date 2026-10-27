@@ -3,7 +3,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import type { Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { bagTotals, type Product } from "./products";
+import { bagTotals, type Product, DEMO_PRODUCTS } from "./products";
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -24,7 +24,10 @@ export const productsQuery = queryOptions({
   queryFn: async () => {
     const { data, error } = await supabase.from("products").select("*").order("created_at");
     if (error) throw error;
-    return data as Product[];
+    const base = (data as Product[]) ?? [];
+    const existingSlugs = new Set(base.map((p) => p.slug));
+    const extras = DEMO_PRODUCTS.filter((p) => !existingSlugs.has(p.slug));
+    return [...base, ...extras];
   },
 });
 
