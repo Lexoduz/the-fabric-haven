@@ -3,7 +3,8 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import type { Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { bagTotals, type Product, DEMO_PRODUCTS } from "./products";
+import { type Product, DEMO_PRODUCTS } from "./products";
+import { placeOrder } from "./checkout.functions";
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -129,17 +130,8 @@ export function useStoreActions(userId?: string) {
 
   const checkout = useMutation({
     mutationFn: async (v: { items: CartRow[]; address: string }) => {
-      const uid = need();
-      const sub = v.items.reduce((s, i) => s + Number(i.product.price) * i.quantity, 0);
-      const t = bagTotals(Math.round(sub * 100) / 100);
-      const { error } = await supabase.from("orders").insert({
-        user_id: uid, subtotal: t.subtotal, discount: t.discount, total: t.total,
-        shipping_address: v.address,
-        items: v.items.map((i) => ({ name: i.product.name, slug: i.product.slug, price: Number(i.product.price), quantity: i.quantity, color: i.color })),
-      });
-      if (error) throw error;
-      const { error: delErr } = await supabase.from("cart_items").delete().in("id", v.items.map((i) => i.id));
-      if (delErr) throw delErr;
+      need();
+      await placeOrder({ data: { cartItemIds: v.items.map((i) => i.id), address: v.address } });
     },
     onSuccess: () => { toast.success("Order placed!"); refresh(); },
     onError: (e) => toast.error(e.message),
