@@ -105,7 +105,7 @@ function Index() {
             return (
               <button key={d} onClick={() => setCat(selected ? null : d)}
                 className={`flex flex-col items-center justify-center gap-2 rounded-2xl border px-3 py-4 text-center transition-all ${selected ? "border-[#16A538] bg-[#16A538]/10 text-[#16A538]" : "border-transparent bg-white text-[#16A538] shadow-soft"}`}>
-                <Icon className="size-6" />
+                {Icon && <Icon className="size-6" />}
                 <span className="text-sm font-semibold leading-tight">{d}</span>
               </button>
             );
