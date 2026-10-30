@@ -4,6 +4,7 @@ import type { Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
 import { type Product, DEMO_PRODUCTS, withSignedProductImages } from "./products";
+import { placeOrder } from "./checkout.functions";
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -171,31 +172,12 @@ export function useStoreActions(userId?: string) {
   const checkout = useMutation({
     mutationFn: async (v: { items: CartRow[]; address: string }) => {
       need();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Not authenticated — please sign in again.");
-      const res = await fetch("/api/checkout", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          items: v.items.map((i) => ({
-            product_id: i.product.id,
-            quantity: i.quantity,
-            color: i.color ?? null,
-          })),
-          shipping_address: v.address,
-        }),
+      await placeOrder({
+        data: {
+          cartItemIds: v.items.map((i) => i.id),
+          address: v.address,
+        },
       });
-      const data = (await res.json().catch(() => ({}))) as {
-        error?: string;
-        warning?: string;
-        cartCleared?: boolean;
-        orderId?: string;
-      };
-      if (!res.ok) throw new Error(data.error || `Checkout failed (${res.status})`);
-      return data;
     },
     onSuccess: (data) => {
       if ((data as { cartCleared?: boolean; warning?: string })?.cartCleared === false) {
