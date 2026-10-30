@@ -3,7 +3,7 @@ import { queryOptions, useMutation, useQuery, useQueryClient } from "@tanstack/r
 import type { Session } from "@supabase/supabase-js";
 import { toast } from "sonner";
 import { supabase } from "@/integrations/supabase/client";
-import { bagTotals, type Product, DEMO_PRODUCTS } from "./products";
+import { type Product, DEMO_PRODUCTS, withSignedProductImages } from "./products";
 
 export function useSession() {
   const [session, setSession] = useState<Session | null>(null);
@@ -21,17 +21,27 @@ export function useSession() {
 
 export const productsQuery = queryOptions({
   queryKey: ["products"],
+  staleTime: 45 * 60 * 1000,
+  refetchInterval: 50 * 60 * 1000,
   queryFn: async () => {
     const { data, error } = await supabase.from("products").select("*").order("created_at");
     if (error) throw error;
     const base = (data as Product[]) ?? [];
     const existingSlugs = new Set(base.map((p) => p.slug));
     const extras = DEMO_PRODUCTS.filter((p) => !existingSlugs.has(p.slug));
-    return [...base, ...extras];
+    const signedBase = await withSignedProductImages(base);
+    const signedExtras = await withSignedProductImages(extras);
+    return [...signedBase, ...signedExtras];
   },
 });
 
-export type CartRow = { id: string; quantity: number; color: string | null; saved_for_later: boolean; product: Product };
+export type CartRow = {
+  id: string;
+  quantity: number;
+  color: string | null;
+  saved_for_later: boolean;
+  product: Product;
+};
 
 export function useCart(userId?: string) {
   return useQuery({
@@ -43,7 +53,10 @@ export function useCart(userId?: string) {
         .select("id, quantity, color, saved_for_later, product:products(*)")
         .order("created_at");
       if (error) throw error;
-      return data as unknown as CartRow[];
+      const rows = data as unknown as CartRow[];
+      return Promise.all(
+        rows.map(async (r) => ({ ...r, product: (await withSignedProductImages([r.product]))[0] })),
+      );
     },
   });
 }
@@ -53,9 +66,14 @@ export function useFavorites(userId?: string) {
     queryKey: ["favorites", userId],
     enabled: !!userId,
     queryFn: async () => {
-      const { data, error } = await supabase.from("favorites").select("product_id, product:products(*)");
+      const { data, error } = await supabase
+        .from("favorites")
+        .select("product_id, product:products(*)");
       if (error) throw error;
-      return data as unknown as { product_id: string; product: Product }[];
+      const rows = data as unknown as { product_id: string; product: Product }[];
+      return Promise.all(
+        rows.map(async (r) => ({ ...r, product: (await withSignedProductImages([r.product]))[0] })),
+      );
     },
   });
 }
@@ -69,29 +87,52 @@ export function useStoreActions(userId?: string) {
   };
   const need = () => {
     if (!userId) {
-      toast("Please sign in first", { description: "Your bag and favorites are saved to your account." });
+      toast("Please sign in first", {
+        description: "Your bag and favorites are saved to your account.",
+      });
       throw new Error("not signed in");
     }
     return userId;
   };
 
   const addToBag = useMutation({
-    mutationFn: async (v: { productId: string; quantity: number; color?: string | null | undefined }) => {
+    mutationFn: async (v: {
+      productId: string;
+      quantity: number;
+      color?: string | null | undefined;
+    }) => {
       const uid = need();
       const { data: existing } = await supabase
-        .from("cart_items").select("id, quantity").eq("product_id", v.productId).maybeSingle();
+        .from("cart_items")
+        .select("id, quantity")
+        .eq("product_id", v.productId)
+        .maybeSingle();
       if (existing) {
-        const { error } = await supabase.from("cart_items")
-          .update({ quantity: existing.quantity + v.quantity, color: v.color ?? null, saved_for_later: false })
+        const { error } = await supabase
+          .from("cart_items")
+          .update({
+            quantity: existing.quantity + v.quantity,
+            color: v.color ?? null,
+            saved_for_later: false,
+          })
           .eq("id", existing.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("cart_items")
-          .insert({ user_id: uid, product_id: v.productId, quantity: v.quantity, color: v.color ?? null });
+        const { error } = await supabase
+          .from("cart_items")
+          .insert({
+            user_id: uid,
+            product_id: v.productId,
+            quantity: v.quantity,
+            color: v.color ?? null,
+          });
         if (error) throw error;
       }
     },
-    onSuccess: () => { toast.success("Added to your bag"); refresh(); },
+    onSuccess: () => {
+      toast.success("Added to your bag");
+      refresh();
+    },
   });
 
   const updateItem = useMutation({
@@ -129,20 +170,46 @@ export function useStoreActions(userId?: string) {
 
   const checkout = useMutation({
     mutationFn: async (v: { items: CartRow[]; address: string }) => {
-      const uid = need();
-      const sub = v.items.reduce((s, i) => s + Number(i.product.price) * i.quantity, 0);
-      const t = bagTotals(Math.round(sub * 100) / 100);
-      const { error } = await supabase.from("orders").insert({
-        user_id: uid, subtotal: t.subtotal, discount: t.discount, total: t.total,
-        shipping_address: v.address,
-        items: v.items.map((i) => ({ name: i.product.name, slug: i.product.slug, price: Number(i.product.price), quantity: i.quantity, color: i.color })),
+      need();
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not authenticated — please sign in again.");
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          items: v.items.map((i) => ({
+            product_id: i.product.id,
+            quantity: i.quantity,
+            color: i.color ?? null,
+          })),
+          shipping_address: v.address,
+        }),
       });
-      if (error) throw error;
-      const { error: delErr } = await supabase.from("cart_items").delete().in("id", v.items.map((i) => i.id));
-      if (delErr) throw delErr;
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        warning?: string;
+        cartCleared?: boolean;
+        orderId?: string;
+      };
+      if (!res.ok) throw new Error(data.error || `Checkout failed (${res.status})`);
+      return data;
     },
-    onSuccess: () => { toast.success("Order placed!"); refresh(); },
-    onError: (e) => toast.error(e.message),
+    onSuccess: (data) => {
+      if ((data as { cartCleared?: boolean; warning?: string })?.cartCleared === false) {
+        toast.success("Order placed!", {
+          description:
+            (data as { warning?: string }).warning ??
+            "Order saved but cart could not be cleared. Please refresh.",
+        });
+      } else {
+        toast.success("Order placed!");
+      }
+      refresh();
+    },
+    onError: (e: Error) => toast.error(e.message),
   });
 
   return { addToBag, updateItem, removeItem, toggleFavorite, checkout };

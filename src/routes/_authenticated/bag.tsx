@@ -74,7 +74,7 @@ function Bag() {
       {tab === "bag" && bag.length > 0 && (
         <div className="mt-6 space-y-3 rounded-3xl bg-card p-5 shadow-soft">
           <div className="flex justify-between text-sm"><span className="text-muted-foreground">Subtotal</span><span className="font-bold">{money(t.subtotal)}</span></div>
-          <div className="flex justify-between text-sm"><span className="text-muted-foreground">Discount {t.discount === 0 && "(10% off $50+)"}</span><span className="font-bold text-sale">-{money(t.discount)}</span></div>
+          <div className="flex justify-between text-sm"><span className="text-muted-foreground">Discount {t.discount === 0 && "(10% off ₦50+)"}</span><span className="font-bold text-sale">-{money(t.discount)}</span></div>
           <div className="flex justify-between border-t pt-3"><span className="font-bold">Total</span><span className="text-xl font-extrabold">{money(t.total)}</span></div>
           <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Delivery address"
             className="w-full rounded-2xl bg-muted px-4 py-3 text-sm outline-none ring-primary focus:ring-2" />

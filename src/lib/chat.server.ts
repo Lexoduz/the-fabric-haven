@@ -55,13 +55,13 @@ export async function handleChat(request: Request) {
 
   const { data: products } = await sb.from("products").select("name, slug, category, brand, price, unit, description");
   const catalog = (products ?? [])
-    .map((p) => `- ${p.name} (${p.category}, by ${p.brand}) $${p.price}/${p.unit} — link: /product/${p.slug} — ${p.description}`)
+    .map((p) => `- ${p.name} (${p.category}, by ${p.brand}) ₦${p.price}/${p.unit} — link: /product/${p.slug} — ${p.description}`)
     .join("\n");
 
   const instructions = `You are Spool, the friendly fabric expert for the Fabrico online fabric store.
 Help customers choose fabrics, calculate yardage, explain fibers, care and sewing tips, and recommend products from the catalog.
 When recommending a product, include a markdown link to it using its link path. Keep answers concise and warm.
-Shipping/policy: orders are placed from the bag; 10% off bags of $50 or more.
+Shipping/policy: orders are placed from the bag; 10% off bags of ₦50 or more.
 Catalog:
 ${catalog}`;
 
